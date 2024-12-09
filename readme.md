@@ -11,6 +11,9 @@ RSDP reduces GPU memory usage by fine-grained pipelined computation and communic
 In a word, RSDP removes the need of full materializtion of each single layer at computation, which is required by FSDP.
 In this way, RSDP mainly saves GPU memory usage from model weights, which can be particularly useful for fine-tuning large models on small datasets with few GPUs.
 
+More specifically, RSDP aggressively re-distributes sharded model slices among GPUs and performs partial computation with the input for that GPU after each re-distribution. 
+Finally, each shard would have visited every GPU at different time and we can get the full output.
+
 ### When to use RSDP
 
 RSDP is useful when GPU memory is significantly occupied by model weights.
@@ -26,6 +29,13 @@ So RSDP is very suitable for fine-tuning, which often satisfies the abovemention
 2. You want to accelerate training process by having a large batch size on each GPU.
     - In such case, the GPU memory is dominated by optimizer states instead of model weights.
 
+## Project Architecture
+
+Following the architecture of FSDP2:
+1. Design: [[RFC] Per-Parameter-Sharding FSDP #114299](https://github.com/pytorch/pytorch/issues/114299)
+2. Implementation: https://github.com/pytorch/pytorch/tree/main/torch/distributed/fsdp/_fully_shard
+3. An example way of calling APIs: [parallelize_llama.py in TorchTitan](https://github.com/pytorch/torchtitan/blob/7281e0be8feeb607f3c3f12cc3ceaafed87912c9/torchtitan/parallelisms/parallelize_llama.py#L336)
+
 ## Explainations
 
 - [Original development repo](https://github.com/wdlctc/rtp) is following the first version of FSDP, which is based on the `FlattenParameter`.
@@ -34,10 +44,3 @@ So RSDP is very suitable for fine-tuning, which often satisfies the abovemention
 Future work:
 1. Since we have finer-grained computation and intermediate outputs, we can achieve finer-grained checkpoint activations.
 2. Also finer-grained pipeline for CPU offloading. 
-
-## Project Architecture
-
-Following the architecture of FSDP2:
-1. Design: [[RFC] Per-Parameter-Sharding FSDP #114299](https://github.com/pytorch/pytorch/issues/114299)
-2. Implementation: https://github.com/pytorch/pytorch/tree/main/torch/distributed/fsdp/_fully_shard
-3. An example way of calling APIs: [parallelize_llama.py in TorchTitan](https://github.com/pytorch/torchtitan/blob/7281e0be8feeb607f3c3f12cc3ceaafed87912c9/torchtitan/parallelisms/parallelize_llama.py#L336)

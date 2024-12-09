@@ -1,3 +1,4 @@
+import functools
 from typing import (
     Any,
     Callable,
@@ -19,6 +20,7 @@ import torch.nn as nn
 from torch.distributed._composable import contract
 import torch.distributed as dist
 from torch.distributed.utils import _get_root_modules
+# TODO: Need to check whether FSDPState can be used directly for RSDP; Otherwise all these methods need to be replaced.
 from torch.distributed.fsdp._fully_shard._fsdp_init import (
     _get_device_from_mesh,
     _get_managed_modules,
@@ -36,16 +38,17 @@ from ._rsdp_common import RSDPMeshInfo
 from ._rsdp_state import RSDPState, _get_module_rsdp_state
 
 __all__ = [
-    "fully_shard",
+    "rsdp_shard",
     "RSDPModule",
     "UnshardHandle",
-    "register_fsdp_forward_method",
+    "register_rsdp_forward_method",
 ]
 
 
 cls_to_rsdp_cls: Dict[Type, Type] = {}
 
 # based on https://github.com/pytorch/pytorch/blob/main/torch/distributed/fsdp/_fully_shard/_fully_shard.py#L51
+# Fontend API; Applied to a module.
 # TODO: RSDPState
 # TODO: RSDPParamGroup
 # TODO: RSDPModule
@@ -61,11 +64,13 @@ def rsdp_shard(
     mp_policy: MixedPrecisionPolicy = MixedPrecisionPolicy(),
     offload_policy: OffloadPolicy = OffloadPolicy(),
 ):
+    # Validate input module
     if isinstance(module, (nn.ModuleList, nn.ModuleDict)):
             raise ValueError(
                 f"fully_shard does not support containers that do not implement forward: {module}"
             )
     
+    # Materializing meta-device modules
     mesh = mesh or _init_default_fully_shard_mesh()
     mesh_info = RSDPMeshInfo(mesh, shard_mesh_dim=0)
     device = _get_device_from_mesh(mesh)
@@ -79,6 +84,7 @@ def rsdp_shard(
         (module,) if isinstance(module, nn.Module) else tuple(_get_root_modules(module))
     )
 
+    # Moving states to device
     state = rsdp_shard.state(modules[0])
     state.init(modules, device, mp_policy)
 
@@ -99,8 +105,8 @@ def rsdp_shard(
 
     # For Dynamo
     for managed_module in managed_modules:
-        managed_module._is_fsdp_managed_module = True  # type: ignore[assignment]
-        managed_module._fsdp_use_orig_params = True  # type: ignore[assignment]
+        managed_module._is_rsdp_managed_module = True  # type: ignore[assignment]
+        managed_module._rsdp_use_orig_params = True  # type: ignore[assignment]
 
     # Place RSDP leftmost for highest priority in the method resolution order
     for module in modules:
@@ -124,13 +130,14 @@ class RSDPModule:
         Override ``__new__`` to remove the RSDP class and directly construct
         the original class for cases like indexing into a container module.
         """
-        # Use index 2 since 0 is the dynamically constructed `FSDP<...>` class
+        # Use index 2 since 0 is the dynamically constructed `RSDP<...>` class
         # and index 1 is the `RSDPModule` class itself
         orig_cls = cls.__mro__[2]
         self = orig_cls.__new__(orig_cls, *args, **kwargs)
         self.__init__(*args, **kwargs)
         return self
 
+    # TODO: Not needed for RSDP
     def reshard(self) -> None:
         """
         Reshards the module's parameters, freeing the unsharded parameters if
@@ -141,6 +148,7 @@ class RSDPModule:
         if rsdp_param_group := state._rsdp_param_group:
             rsdp_param_group.reshard()
 
+    # TODO: Not needed for RSDP
     def unshard(self, async_op: bool = False) -> Optional["UnshardHandle"]:
         """
         Unshards the module's parameters by allocating memory and all-gathering
@@ -387,6 +395,43 @@ class _UnshardHandleImpl(UnshardHandle):
             self._fsdp_param_group.wait_for_unshard()
             # Avoid keeping a reference
             self._fsdp_param_group = None
+
+def register_rsdp_forward_method(module: nn.Module, method_name: str) -> None:
+    """
+    Registers a method on ``module`` to be considered a forward method for
+    FSDP.
+
+    FSDP all-gathers parameters pre-forward and optionally frees parameters
+    post-forward (depending on ``reshard_after_forward``). FSDP only knows to
+    do this for :meth:`nn.Module.forward` by default. This function patches a
+    user-specified method to run the pre/post-forward hooks before/after the
+    method, respectively. If ``module`` is not an :class:`FSDPModule`, then
+    this is a no-op.
+
+    Args:
+        module (nn.Module): Module to register the forward method on.
+        method_name (str): Name of the forward method.
+    """
+    if not isinstance(module, RSDPModule):
+        # Make no-op to allow including both when using/not using FSDP
+        return
+    if not hasattr(module, method_name):
+        raise ValueError(f"{type(module)} does not have a method {method_name}")
+    orig_method = getattr(module, method_name)
+
+    @functools.wraps(orig_method)
+    def wrapped_method(self, *args, **kwargs):
+        fsdp_state = self._get_fsdp_state()
+        args, kwargs = fsdp_state._pre_forward(self, args, kwargs)
+        out = orig_method(*args, **kwargs)
+        return fsdp_state._post_forward(self, args, out)
+
+    # Use `__get__` to make `wrapped_method` an instance method
+    setattr(
+        module,
+        method_name,
+        wrapped_method.__get__(module, type(module)),  # type:ignore[attr-defined]
+    )
 
 def _assert_all_rsdp_modules(modules: Iterable[Any]) -> None:
     for module in modules:
