@@ -47,4 +47,30 @@ Future work:
 
 ## Benchmarks
 
+### RTP
 
+```bash
+python benchmarks/rtp/dp_benchmark.py --use_synthetic_data
+python benchmarks/rtp/fsdp_benchmark.py --use_synthetic_data
+python benchmarks/rtp/tp_benchmark.py --use_synthetic_data
+python benchmarks/rtp/rtp_benchmark.py --use_synthetic_data
+```
+
+Config:
+
+```bash
+python benchmarks/rtp_benchmark.py \
+    --max_batch 10 \
+    --use_synthetic_data \
+    --vocab_size 10240 \
+    --ninp 2048 \
+    --nhid 2048 \
+    --nhead 32 \
+    --num_decoder_layers 10 \
+    --seq_len 32 \
+    --batch_size 32 
+```
+
+### RSDP
+
+WIP.
