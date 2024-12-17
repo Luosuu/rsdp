@@ -29,6 +29,14 @@ So RSDP is very suitable for fine-tuning, which often satisfies the abovemention
 2. You want to accelerate training process by having a large batch size on each GPU.
     - In such case, the GPU memory is dominated by optimizer states instead of model weights.
 
+## Demo
+
+We provide some demos for quick understanding the key points of RSDP and its difference from other parallelism.
+
+[demo_matmul.py](./demo/demo_matmul.py) explains the different tensor placement methods with straight forward matrix multiplication examples.
+
+[demo_nn.py](./demo/demo_nn.py) provides a bit more practical example of applying them to a simple fully connected nerual network with using `DTensor` APIs instead of directly using model wrappers.
+
 ## Project Architecture
 
 Following the architecture of FSDP2:
