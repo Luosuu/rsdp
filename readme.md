@@ -44,3 +44,7 @@ Following the architecture of FSDP2:
 Future work:
 1. Since we have finer-grained computation and intermediate outputs, we can achieve finer-grained checkpoint activations.
 2. Also finer-grained pipeline for CPU offloading. 
+
+## Benchmarks
+
+
