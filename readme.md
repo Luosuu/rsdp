@@ -55,8 +55,6 @@ Future work:
 
 ## Benchmarks
 
-### RTP
-
 ```bash
 python benchmarks/rtp/dp_benchmark.py --use_synthetic_data
 python benchmarks/rtp/fsdp_benchmark.py --use_synthetic_data
@@ -78,7 +76,3 @@ python benchmarks/rtp_benchmark.py \
     --seq_len 32 \
     --batch_size 32 
 ```
-
-### RSDP
-
-WIP.
